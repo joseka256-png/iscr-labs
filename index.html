@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>ISCR Labs</title>
+<link rel="icon" href="img/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<!-- LOGIN (solo con Firebase) -->
+<div class="login" id="login" hidden>
+  <form class="login-caja" id="loginForm">
+    <img src="img/iscr-oscuro.png" alt="ISCR Tech">
+    <h1>ISCR <span>Labs</span></h1>
+    <p>Panel interno de clientes, tickets y cobros.</p>
+    <label>Correo<input type="email" id="lCorreo" autocomplete="username" required></label>
+    <label>Contraseña<input type="password" id="lClave" autocomplete="current-password" required></label>
+    <button class="btn" type="submit">Entrar</button>
+    <p class="msg" id="lMsg"></p>
+  </form>
+</div>
+
+<div class="app" id="app" hidden>
+  <aside class="lateral" id="lateral">
+    <a class="marca" href="#/"><img src="img/iscr-blanco.png" alt="ISCR"><b>Labs</b></a>
+    <nav id="menu"></nav>
+    <div class="lateral-pie" id="lateralPie"></div>
+  </aside>
+  <div class="principal">
+    <header class="barra">
+      <button class="icono-btn menu-movil" id="abrirMenu" aria-label="Menú">☰</button>
+      <h1 id="titulo">Inicio</h1>
+      <div class="barra-der">
+        <div class="timer-global" id="timerGlobal" hidden></div>
+        <button class="btn" data-acc="nuevo-ticket" id="btnNuevoTicket"></button>
+      </div>
+    </header>
+    <div class="banda-local" id="bandaLocal" hidden></div>
+    <main id="vista"></main>
+  </div>
+</div>
+
+<div class="modal" id="modal" hidden><div class="modal-caja" role="dialog" aria-modal="true" id="modalCaja"></div></div>
+<div class="toast" id="toast"></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
