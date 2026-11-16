@@ -8,6 +8,7 @@ Panel interno de **ISCR Tech** para llevar todo lo de los clientes en un solo lu
 | **Clientes** | Ficha de cada cliente: contacto, sitio, repo, plan, mensualidad, día de pago, contrato, cambios usados del mes, tickets, cobros, dominios y su historial de cambios. |
 | **Tickets** | Cada pedido del cliente (por WhatsApp, llamada…) con prioridad, estado, fecha límite y **cronómetro de tiempo**. Marca si cuenta dentro de los cambios del plan o es extra. |
 | **Cobros** | Las mensualidades se **generan solas** cada mes según el plan de cada cliente. Marcás "Pagó" con método y comprobante, o le mandás el **recordatorio por WhatsApp** con un toque. |
+| **Gastos** | Gastos fijos del negocio (suscripciones, internet, dominios propios, IA…) mensuales, anuales o únicos, con próximo pago y "Pagué". Suma también los costos de Renovaciones. Muestra el gasto fijo mensual, lo pagado en el mes y la **ganancia mensual estimada** (mensualidades − gastos). Con el tipo de cambio en Ajustes, todo se ve en colones. |
 | **Renovaciones** | Dominios, hosting y otros servicios con fecha de vencimiento, lo que te cuestan y lo que le cobrás al cliente. Semáforo a 60 y 30 días. "Renovado" mueve la fecha un año y crea el cobro. |
 | **Historial de cambios** | Lo que se publicó, en producción o en prueba, con el commit y el ticket relacionado. |
 | **Mantenimiento** | Lista mensual por cliente (revisar sitio, respaldo, uso de Firebase, dominio, reporte…). Se crea sola cada mes. |

@@ -23,6 +23,7 @@ const CONCEPTO = { mensualidad: "Mensualidad", arranque: "Arranque / instalació
 const CHIP_COBRO = { pagado: "verde", pendiente: "azul", vencido: "rojo", anulado: "gris" };
 const TIPO_SERV = { dominio: "Dominio", hosting: "Hosting", correo: "Correo", ssl: "Certificado SSL", app: "App / servicio", otro: "Otro" };
 const ENTORNO = { produccion: "Producción", prueba: "Prueba / preview" };
+const CATEGORIA_GASTO = { dominios: "Dominios", hosting: "Hosting / servidores", software: "Software y suscripciones", ia: "IA (Claude, ChatGPT…)", internet: "Internet y teléfono", equipo: "Equipo", publicidad: "Publicidad", impuestos: "Impuestos / CCSS", otro: "Otro" };
 const METODO = { sinpe: "SINPE Móvil", transferencia: "Transferencia", efectivo: "Efectivo", tarjeta: "Tarjeta" };
 
 // =========================================================
@@ -142,7 +143,8 @@ const F_SERVICIO = [
   { k: "nombre", label: "Nombre", req: true, ph: "carnicerialacentral.com", full: true },
   { k: "proveedor", label: "Proveedor", ph: "Namecheap, NIC, Firebase…" },
   { k: "vence", label: "Vence / se renueva", tipo: "date" },
-  { k: "costo", label: "Lo que me cuesta (por período)", tipo: "number" },
+  { k: "frecuencia", label: "Se renueva", tipo: "select", opciones: { anual: "Cada año", mensual: "Cada mes" }, def: "anual" },
+  { k: "costo", label: "Lo que me cuesta (por período)", tipo: "number", ayuda: "Cuenta como gasto en la sección Gastos" },
   { k: "moneda", label: "Moneda del costo", tipo: "select", opciones: { USD: "Dólares ($)", CRC: "Colones (₡)" }, def: "USD" },
   { k: "cobroCliente", label: "Lo que le cobro al cliente (₡)", tipo: "number", ayuda: "0 si va incluido en la mensualidad" },
   { k: "renovacionAuto", label: "Renovación automática activada", tipo: "check" },
@@ -150,11 +152,26 @@ const F_SERVICIO = [
   { k: "notas", label: "Notas", tipo: "textarea" }
 ];
 
-const conClientes = (campos, extraOpc) => campos.map(f => f.k === "clienteId" ? { ...f, opciones: clientesOpc() } : f.k === "ticketId" ? { ...f, opciones: extraOpc } : f);
+const F_GASTO = [
+  { k: "nombre", label: "Gasto", req: true, full: true, ph: "Ej. Suscripción Claude, dominio iscrtech.com" },
+  { k: "categoria", label: "Categoría", tipo: "select", opciones: CATEGORIA_GASTO, def: "software" },
+  { k: "frecuencia", label: "Se paga", tipo: "select", opciones: L.FRECUENCIA, def: "mensual" },
+  { k: "monto", label: "Monto", tipo: "number", req: true },
+  { k: "moneda", label: "Moneda", tipo: "select", opciones: { USD: "Dólares ($)", CRC: "Colones (₡)" }, def: "USD" },
+  { k: "proximo", label: "Próximo pago", tipo: "date", req: true },
+  { k: "metodo", label: "Se paga con", ph: "Ej. Tarjeta Visa ****1234" },
+  { k: "clienteId", label: "¿Es de un cliente?", tipo: "select", opciones: {} },
+  { k: "renovacionAuto", label: "Se cobra solo (cargo automático)", tipo: "check" },
+  { k: "activo", label: "Activo", tipo: "check", def: true },
+  { k: "notas", label: "Notas", tipo: "textarea" }
+];
+
+const conClientes = (campos, extraOpc) => campos.map(f => f.k === "clienteId" ? { ...f, opciones: f.req ? clientesOpc() : { ...clientesOpc(), "": "— Gasto del negocio —" } } : f.k === "ticketId" ? { ...f, opciones: extraOpc } : f);
 
 function formCliente(c = { estado: "activo", plan: { cambiosMes: "4", diaPago: 5 } }) {
   formulario({ titulo: c.id ? `Editar ${c.nombre}` : "Nuevo cliente", campos: F_CLIENTE, datos: c,
-    onGuardar: d => guardar("clientes", d), onBorrar: c.id ? () => borrar("clientes", c.id) : null });
+    onGuardar: async d => { await guardar("clientes", d); await L.generarMensualidades(); await L.generarMantenimientos(); },
+    onBorrar: c.id ? () => borrar("clientes", c.id) : null });
 }
 function formTicket(t = {}) {
   const datos = { incluido: true, tipo: "cambio", prioridad: "media", estado: "abierto", origen: "whatsapp", ...t };
@@ -179,9 +196,42 @@ function formCobro(c = {}) {
     onGuardar: d => { if (d.estado === "pagado" && !d.pagadoFecha) d.pagadoFecha = L.hoyISO(); return guardar("cobros", d); },
     onBorrar: c.id ? () => borrar("cobros", c.id) : null });
 }
+function formGasto(g = {}) {
+  formulario({ titulo: g.id ? `Editar ${g.nombre}` : "Nuevo gasto fijo", campos: conClientes(F_GASTO),
+    datos: { categoria: "software", frecuencia: "mensual", moneda: "USD", activo: true, renovacionAuto: true, proximo: L.hoyISO(), ...g },
+    onGuardar: d => guardar("gastos", d), onBorrar: g.id ? () => borrar("gastos", g.id) : null });
+}
+function formPagarGasto(g) {
+  const sig = L.siguienteFecha(g.proximo, g.frecuencia);
+  abrirModal(`
+    <form id="frmPG">
+      <div class="modal-cab"><h2>Registrar pago</h2><button type="button" class="icono-btn" data-acc="cerrar">${ico("x")}</button></div>
+      <div class="modal-cuerpo">
+        <p style="margin-bottom:14px"><b>${esc(g.nombre)}</b> · ${L.FRECUENCIA[g.frecuencia] || ""}</p>
+        <div class="form">
+          <label>Fecha de pago<input type="date" id="gFecha" value="${L.hoyISO()}"></label>
+          <label>Monto pagado<input type="number" step="any" id="gMonto" value="${esc(g.monto)}"></label>
+          <label class="full">${g.frecuencia === "unico" ? "Es un pago único: queda como pagado." : `Próximo pago quedará para el <b>${L.fechaCorta(sig)}</b>.`}</label>
+        </div>
+      </div>
+      <div class="modal-pie"><button type="button" class="btn sec" data-acc="cerrar">Cancelar</button><button class="btn verde">${ico("check")} Pagado</button></div>
+    </form>`);
+  $("frmPG").onsubmit = async e => {
+    e.preventDefault();
+    const pago = { fecha: $("gFecha").value, monto: +$("gMonto").value || +g.monto, moneda: g.moneda };
+    if (g.origen === "servicio") {
+      const s = db.servicios.find(x => x.id === g.id);
+      await guardar("servicios", { ...s, vence: L.siguienteFecha(s.vence, s.frecuencia || "anual") || s.vence, historial: [...(s.historial || []), { fecha: pago.fecha, hasta: L.siguienteFecha(s.vence, s.frecuencia || "anual"), costo: pago.monto, moneda: pago.moneda }] });
+    } else {
+      const base = db.gastos.find(x => x.id === g.id);
+      await guardar("gastos", { ...base, pagos: [...(base.pagos || []), pago], proximo: g.frecuencia === "unico" ? base.proximo : sig, activo: g.frecuencia === "unico" ? false : base.activo });
+    }
+    cerrarModal(); render(); toast("Pago registrado");
+  };
+}
 function formServicio(s = {}) {
   formulario({ titulo: s.id ? `Editar ${s.nombre}` : "Nuevo dominio / servicio", campos: conClientes(F_SERVICIO),
-    datos: { tipo: "dominio", moneda: "USD", renovacionAuto: true, ...s },
+    datos: { tipo: "dominio", moneda: "USD", renovacionAuto: true, frecuencia: "anual", ...s },
     onGuardar: d => guardar("servicios", d), onBorrar: s.id ? () => borrar("servicios", s.id) : null });
 }
 
@@ -208,7 +258,7 @@ function formPagar(cb) {
 }
 async function renovarServicio(s) {
   if (!s.vence) return formServicio(s);
-  const nueva = L.sumarAnio(s.vence);
+  const nueva = L.siguienteFecha(s.vence, s.frecuencia || "anual");
   if (!confirm(`¿Marcar ${s.nombre} como renovado hasta el ${L.fechaCorta(nueva)}?`)) return;
   await guardar("servicios", { ...s, vence: nueva, historial: [...(s.historial || []), { fecha: L.hoyISO(), hasta: nueva, costo: s.costo, moneda: s.moneda }] });
   if (+s.cobroCliente > 0 && confirm(`¿Crear el cobro de ${L.colones(s.cobroCliente)} al cliente por esta renovación?`))
@@ -268,7 +318,7 @@ function verTicket(t) {
 // =========================================================
 const MENU = [
   ["", "Inicio", "layout-dashboard"], ["clientes", "Clientes", "users"], ["tickets", "Tickets", "ticket"],
-  ["cobros", "Cobros", "wallet"], ["renovaciones", "Renovaciones", "calendar-clock"], ["cambios", "Historial de cambios", "git-commit-horizontal"],
+  ["cobros", "Cobros", "wallet"], ["gastos", "Gastos", "receipt"], ["renovaciones", "Renovaciones", "calendar-clock"], ["cambios", "Historial de cambios", "git-commit-horizontal"],
   ["mantenimiento", "Mantenimiento", "wrench"], ["ajustes", "Ajustes", "settings"]
 ];
 let ruta = [], filtros = { tEstado: "abiertos", tCliente: "", cPeriodo: L.periodoActual(), cCliente: "", mPeriodo: L.periodoActual(), xCliente: "", xEntorno: "" };
@@ -324,6 +374,7 @@ function vInicio() {
     <div class="kpi ${venc.length ? "alerta" : ""}"><small>${ico("alert-triangle")} Cobros vencidos</small><b>${venc.length}</b><span>${L.colones(venc.reduce((s, c) => s + (+c.monto || 0), 0))}</span></div>
     <div class="kpi"><small>${ico("ticket")} Tickets abiertos</small><b>${abiertos.length}</b><span>${abiertos.filter(t => ["alta", "urgente"].includes(t.prioridad)).length} con prioridad alta</span></div>
     <div class="kpi"><small>${ico("clock")} Horas este mes</small><b>${L.horas(L.minutosMes())}</b><span>en tickets</span></div>
+    <div class="kpi ${L.gananciaEstimada() !== null && L.gananciaEstimada() < 0 ? "alerta" : ""}"><small>${ico("trending-up")} Ganancia mensual estimada</small><b>${L.gananciaEstimada() === null ? "—" : L.colones(L.gananciaEstimada())}</b><span>gastos fijos ${L.textoMonto(L.gastoMensual())}/mes</span></div>
   </div>
   <div class="grid3">
     <div>
@@ -333,6 +384,8 @@ function vInicio() {
         ${abiertos.length ? tablaTickets(abiertos.slice(0, 8), true) : vacio("No hay tickets abiertos.", "nuevo-ticket", "Nuevo ticket")}</div>
     </div>
     <div>
+      <div class="panel"><div class="panel-cab"><h2>${ico("receipt")} Pagos míos (30 días)</h2><div class="der"><a class="btn sec peq" href="#/gastos">Gastos</a></div></div>
+        ${L.proximosGastos(30).length ? L.proximosGastos(30).map(g => { const d = L.diasHasta(g.proximo); return `<div class="lista-item"><span class="chip ${d < 0 ? "rojo" : d <= 7 ? "rojo" : "ambar"}">${d < 0 ? `Atrasado ${-d} d` : d === 0 ? "Hoy" : `En ${d} d`}</span><div class="txt"><b>${esc(g.nombre)}</b><span class="muted">${L.dinero(g.monto, g.moneda)}${g.renovacionAuto ? " · cargo automático" : ""}</span></div></div>`; }).join("") : vacio("Nada que pagar en 30 días.")}</div>
       <div class="panel"><div class="panel-cab"><h2>${ico("calendar-clock")} Renovaciones (60 días)</h2></div>
         ${renov.length ? renov.map(s => { const e = L.estadoServicio(s); return `<div class="lista-item"><span class="chip ${e.clase}">${e.txt}</span><div class="txt"><b>${esc(s.nombre)}</b><span class="muted">${esc(L.nombreCliente(s.clienteId))} · ${esc(s.proveedor || "")}</span></div></div>`; }).join("") : vacio("Nada vence en los próximos 60 días.")}</div>
       <div class="panel"><div class="panel-cab"><h2>${ico("wrench")} Mantenimiento de ${L.MESES[new Date().getMonth()]}</h2><div class="der"><a class="btn sec peq" href="#/mantenimiento">Abrir</a></div></div>
@@ -424,6 +477,37 @@ function vCobros() {
   <div class="panel">${cs.length ? tablaCobros(cs) : vacio(`No hay cobros en ${L.nombrePeriodo(p)}.`, "generar-mensualidades", "Generar mensualidades")}</div>`;
 }
 
+// ---------- GASTOS ----------
+function vGastos() {
+  const gs = L.todosLosGastos().sort((a, b) => (a.proximo || "9999").localeCompare(b.proximo || "9999"));
+  const gm = L.gastoMensual(), ga = L.gastadoMes(), gan = L.gananciaEstimada();
+  const porCat = {};
+  for (const g of gs) { const v = L.aColones(L.mensualizado(g), g.moneda); if (v !== null) porCat[g.categoria || "otro"] = (porCat[g.categoria || "otro"] || 0) + v; }
+  const maxCat = Math.max(1, ...Object.values(porCat));
+  const fila = g => { const d = L.diasHasta(g.proximo); const ch = d === null ? ["gris", "Sin fecha"] : d < 0 ? ["rojo", `Atrasado ${-d} d`] : d <= 7 ? ["rojo", d === 0 ? "Hoy" : `En ${d} d`] : d <= 30 ? ["ambar", `En ${d} d`] : ["verde", `En ${d} d`];
+    return `<tr>
+    <td><b>${esc(g.nombre)}</b><div class="muted">${esc(CATEGORIA_GASTO[g.categoria] || "")}${g.clienteId ? " · " + esc(L.nombreCliente(g.clienteId)) : ""}${g.origen === "servicio" ? ' · <a href="#/renovaciones">desde Renovaciones</a>' : ""}</div></td>
+    <td class="der-txt"><b>${L.dinero(g.monto, g.moneda)}</b><div class="muted">${L.FRECUENCIA[g.frecuencia] || ""}</div></td>
+    <td class="ocultar-movil der-txt">${g.frecuencia === "unico" ? "—" : L.dinero(L.mensualizado(g), g.moneda)}</td>
+    <td>${L.fechaCorta(g.proximo)}<div><span class="chip ${ch[0]}">${ch[1]}</span>${g.renovacionAuto ? ' <span class="chip gris">Auto</span>' : ""}</div></td>
+    <td class="der-txt" style="white-space:nowrap"><button class="btn verde peq" data-acc="pagar-gasto" data-id="${g.id}" data-origen="${g.origen}">${ico("check")} Pagué</button>
+      <button class="icono-btn" data-acc="${g.origen === "servicio" ? "editar-servicio" : "editar-gasto"}" data-id="${g.id}">${ico("pencil")}</button></td></tr>`; };
+  return `<div class="filtros"><button class="btn" data-acc="nuevo-gasto">${ico("plus")} Nuevo gasto fijo</button>
+    ${L.tipoCambio() ? `<span class="muted">Tipo de cambio: ₡${L.tipoCambio()} por dólar</span>` : `<span class="muted">Poné el tipo de cambio en <a href="#/ajustes"><b>Ajustes</b></a> para ver todo en colones.</span>`}</div>
+  <div class="kpis">
+    <div class="kpi"><small>${ico("receipt")} Gasto fijo mensual</small><b>${L.textoMonto(gm)}</b><span>anuales repartidos en 12</span></div>
+    <div class="kpi"><small>${ico("trending-down")} Pagado este mes</small><b>${L.textoMonto(ga)}</b><span>según pagos registrados</span></div>
+    <div class="kpi"><small>${ico("repeat")} Ingreso mensual recurrente</small><b>${L.colones(L.mrr())}</b></div>
+    <div class="kpi ${gan !== null && gan < 0 ? "alerta" : ""}"><small>${ico("trending-up")} Ganancia mensual estimada</small><b>${gan === null ? "—" : L.colones(gan)}</b><span>${gan === null ? "falta el tipo de cambio" : "mensualidades − gastos fijos"}</span></div>
+  </div>
+  <div class="grid3">
+    <div class="panel">${gs.length ? `<table><tr><th>Gasto</th><th class="der-txt">Monto</th><th class="ocultar-movil der-txt">Por mes</th><th>Próximo pago</th><th></th></tr>${gs.map(fila).join("")}</table>` : vacio("Anotá tus gastos fijos: dominios, hosting, suscripciones (Claude, ChatGPT, Google), internet, teléfono… para saber cuánto te queda de ganancia.", "nuevo-gasto", "Nuevo gasto fijo")}</div>
+    <div class="panel"><div class="panel-cab"><h2>Por categoría (al mes)</h2></div><div class="panel-cuerpo">
+      ${Object.keys(porCat).length ? Object.entries(porCat).sort((a, b) => b[1] - a[1]).map(([c, v]) => `<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between"><span>${esc(CATEGORIA_GASTO[c] || c)}</span><b>${L.colones(v)}</b></div><div class="barra-prog"><i style="width:${Math.round(100 * v / maxCat)}%;background:var(--azul)"></i></div></div>`).join("") : `<p class="muted">${L.tipoCambio() || !gs.some(g => g.moneda === "USD") ? "Sin gastos todavía." : "Poné el tipo de cambio en Ajustes para ver el reparto."}</p>`}
+    </div></div>
+  </div>`;
+}
+
 // ---------- RENOVACIONES ----------
 function vRenovaciones() {
   const ss = [...db.servicios].sort((a, b) => (a.vence || "9999").localeCompare(b.vence || "9999"));
@@ -467,12 +551,13 @@ function vAjustes() {
       <label>Firma en recordatorios<input id="aFirma" value="${esc(a.firma || "José de ISCR Tech")}"></label>
       <label>SINPE Móvil para cobros<input id="aSinpe" value="${esc(a.sinpe || "")}" placeholder="8690-1930"></label>
       <label>Tarifa por hora extra (₡)<input id="aTarifa" type="number" value="${esc(a.tarifaHora || "")}"></label>
+      <label>Tipo de cambio (₡ por $1)<input id="aTC" type="number" step="any" value="${esc(a.tipoCambio || "")}" placeholder="Ej. el del BCCR de hoy"></label>
       <label class="full">Lista base de mantenimiento mensual (una tarea por línea)<textarea id="aMant" style="min-height:150px">${esc((a.plantillaMant?.length ? a.plantillaMant : L.PLANTILLA_MANT).join("\n"))}</textarea></label>
       <div class="full"><button class="btn">${ico("check")} Guardar ajustes</button></div>
     </form></div></div>
   <div class="panel"><div class="panel-cab"><h2>${ico("shield-check")} Datos y respaldo</h2></div><div class="panel-cuerpo" style="display:grid;gap:12px">
     <p>Modo actual: <b>${modo === "local" ? "Local (solo este navegador)" : "Firebase (en la nube)"}</b></p>
-    <p class="muted">Registros: ${db.clientes.length} clientes · ${db.tickets.length} tickets · ${db.cambios.length} cambios · ${db.cobros.length} cobros · ${db.servicios.length} servicios</p>
+    <p class="muted">Registros: ${db.clientes.length} clientes · ${db.tickets.length} tickets · ${db.cambios.length} cambios · ${db.cobros.length} cobros · ${db.gastos.length} gastos · ${db.servicios.length} servicios</p>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn" data-acc="exportar">${ico("download")} Descargar respaldo (JSON)</button>
       <label class="btn sec" style="cursor:pointer">${ico("upload")} Importar respaldo<input type="file" id="aImportar" accept="application/json" hidden></label>
@@ -491,7 +576,7 @@ function render() {
   $("menu").innerHTML = MENU.map(([r, t, i]) => `<a href="#/${r}" class="${sec === r ? "act" : ""}">${ico(i)} ${t}${r === "tickets" && abiertos ? `<span class="num" style="background:var(--azul)">${abiertos}</span>` : ""}${r === "cobros" && venc ? `<span class="num">${venc}</span>` : ""}</a>`).join("");
   const titulos = Object.fromEntries(MENU.map(([r, t]) => [r, t]));
   $("titulo").textContent = sec === "clientes" && ruta[1] ? (L.cliente(ruta[1])?.nombre || "Cliente") : titulos[sec] || "Inicio";
-  const vistas = { "": vInicio, clientes: () => ruta[1] ? vCliente(ruta[1]) : vClientes(), tickets: vTickets, cobros: vCobros, renovaciones: vRenovaciones, cambios: vCambios, mantenimiento: vMantenimiento, ajustes: vAjustes };
+  const vistas = { "": vInicio, clientes: () => ruta[1] ? vCliente(ruta[1]) : vClientes(), tickets: vTickets, cobros: vCobros, gastos: vGastos, renovaciones: vRenovaciones, cambios: vCambios, mantenimiento: vMantenimiento, ajustes: vAjustes };
   $("vista").innerHTML = (vistas[sec] || vInicio)();
   $("lateral").classList.remove("abierto");
   pintarTimer();
@@ -515,7 +600,7 @@ setInterval(() => {
 function enlazarAjustes() {
   $("frmAjustes").onsubmit = async e => {
     e.preventDefault();
-    await guardarAjustes({ firma: $("aFirma").value.trim(), sinpe: $("aSinpe").value.trim(), tarifaHora: +$("aTarifa").value || "", plantillaMant: $("aMant").value.split("\n").map(s => s.trim()).filter(Boolean) });
+    await guardarAjustes({ firma: $("aFirma").value.trim(), sinpe: $("aSinpe").value.trim(), tarifaHora: +$("aTarifa").value || "", tipoCambio: +$("aTC").value || "", plantillaMant: $("aMant").value.split("\n").map(s => s.trim()).filter(Boolean) });
     toast("Ajustes guardados");
   };
   $("aImportar").onchange = async e => {
@@ -538,6 +623,9 @@ const ACCIONES = {
   "pagar": b => formPagar(db.cobros.find(x => x.id === b.dataset.id)),
   "nuevo-servicio": b => formServicio({ clienteId: b.dataset.cliente || (ruta[0] === "clientes" ? ruta[1] : "") || "" }),
   "editar-servicio": b => formServicio(db.servicios.find(x => x.id === b.dataset.id)),
+  "nuevo-gasto": () => formGasto(),
+  "editar-gasto": b => formGasto(db.gastos.find(x => x.id === b.dataset.id)),
+  "pagar-gasto": b => formPagarGasto(L.todosLosGastos().find(x => x.id === b.dataset.id && x.origen === b.dataset.origen)),
   "renovar": b => renovarServicio(db.servicios.find(x => x.id === b.dataset.id)),
   "iniciar": async b => { const t = await L.iniciarTimer(db.tickets.find(x => x.id === b.dataset.id)); render(); if (!$("modal").hidden) verTicket(t); toast(`Tiempo corriendo en #${t.numero}`); },
   "parar": async b => { const t = await L.detenerTimer(db.tickets.find(x => x.id === b.dataset.id)); render(); if (!$("modal").hidden) verTicket(t); toast(`Tiempo guardado en #${t.numero}`); },

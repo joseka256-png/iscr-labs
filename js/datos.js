@@ -6,7 +6,7 @@
 // =========================================================
 import { FIREBASE } from "./config.js";
 
-export const COLECCIONES = ["clientes", "servicios", "tickets", "cambios", "cobros", "mantenimientos", "ajustes"];
+export const COLECCIONES = ["clientes", "servicios", "tickets", "cambios", "cobros", "gastos", "mantenimientos", "ajustes"];
 export const db = Object.fromEntries(COLECCIONES.map(c => [c, []]));
 export const modo = FIREBASE ? "firebase" : "local";
 

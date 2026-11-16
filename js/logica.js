@@ -112,3 +112,52 @@ export async function generarMantenimientos(p = periodoActual()) {
   return n;
 }
 export const progresoMant = m => { const t = m.tareas || []; return t.length ? Math.round(100 * t.filter(x => x.hecho).length / t.length) : 0; };
+
+// ---------- gastos fijos del negocio ----------
+// Un gasto tiene frecuencia mensual, anual o única y la fecha del próximo pago.
+// Los costos de Renovaciones (dominios/hosting de clientes) también cuentan como gasto.
+export const FRECUENCIA = { mensual: "Mensual", anual: "Anual", unico: "Único" };
+export const tipoCambio = () => +ajustes().tipoCambio || 0;
+// pasa un monto a colones (si es en dólares y hay tipo de cambio)
+export const aColones = (monto, moneda = "CRC") => moneda === "USD" ? (tipoCambio() ? (+monto || 0) * tipoCambio() : null) : (+monto || 0);
+export const mensualizado = g => g.frecuencia === "mensual" ? (+g.monto || 0) : g.frecuencia === "anual" ? (+g.monto || 0) / 12 : 0;
+
+// gastos + costos de servicios de clientes, en una sola lista
+export function todosLosGastos() {
+  const propios = db.gastos.filter(g => g.activo !== false).map(g => ({ ...g, origen: "gasto" }));
+  const deServicios = db.servicios.filter(s => +s.costo > 0).map(s => ({
+    id: s.id, origen: "servicio", nombre: s.nombre, categoria: s.tipo === "dominio" ? "dominios" : "hosting",
+    frecuencia: s.frecuencia || "anual", monto: +s.costo, moneda: s.moneda || "USD", proximo: s.vence, clienteId: s.clienteId,
+    renovacionAuto: s.renovacionAuto, proveedor: s.proveedor
+  }));
+  return [...propios, ...deServicios];
+}
+// total mensual equivalente, separado por moneda y convertido si hay tipo de cambio
+export function gastoMensual() {
+  const r = { CRC: 0, USD: 0 };
+  for (const g of todosLosGastos()) r[g.moneda === "USD" ? "USD" : "CRC"] += mensualizado(g);
+  r.totalCRC = tipoCambio() ? r.CRC + r.USD * tipoCambio() : null;
+  return r;
+}
+export const textoMonto = r => r.totalCRC !== null && r.totalCRC !== undefined ? colones(r.totalCRC) : [r.CRC ? colones(r.CRC) : "", r.USD ? "$" + r.USD.toFixed(2) : ""].filter(Boolean).join(" + ") || colones(0);
+export const gananciaEstimada = () => { const g = gastoMensual(); return g.totalCRC === null ? (g.USD ? null : mrr() - g.CRC) : mrr() - g.totalCRC; };
+export const proximosGastos = (dias = 30) => todosLosGastos().filter(g => g.proximo && diasHasta(g.proximo) <= dias).sort((a, b) => a.proximo.localeCompare(b.proximo));
+export function siguienteFecha(f, frecuencia) {
+  if (!f) return "";
+  if (frecuencia === "anual") return sumarAnio(f);
+  if (frecuencia === "mensual") {
+    const [y, m, d] = f.split("-").map(Number);
+    const ultimo = new Date(y, m + 1, 0).getDate();           // último día del mes siguiente
+    const x = new Date(y, m, Math.min(d, ultimo));
+    return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
+  }
+  return "";
+}
+// gastos pagados en un mes (historial de pagos)
+export function gastadoMes(p = periodoActual()) {
+  const r = { CRC: 0, USD: 0 };
+  for (const g of db.gastos) for (const x of g.pagos || []) if ((x.fecha || "").startsWith(p)) r[x.moneda === "USD" ? "USD" : "CRC"] += +x.monto || 0;
+  for (const s of db.servicios) for (const x of s.historial || []) if ((x.fecha || "").startsWith(p) && +x.costo) r[x.moneda === "USD" ? "USD" : "CRC"] += +x.costo;
+  r.totalCRC = tipoCambio() ? r.CRC + r.USD * tipoCambio() : null;
+  return r;
+}
