@@ -642,6 +642,14 @@ const ACCIONES = {
   "exportar": () => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([exportar()], { type: "application/json" })); a.download = `iscr-labs-respaldo-${L.hoyISO()}.json`; a.click(); },
   "sembrar": async () => { const { sembrar } = await import("./semilla.js"); await sembrar(); await L.generarMantenimientos(); render(); toast("Carnicería La Central cargada"); },
   "cargar-pendiente": async b => { const p = PENDIENTES.find(x => x.clave === b.dataset.clave); if (!p || !porCargar().includes(p)) return; await p.cargar(); await L.generarMantenimientos(); render(); toast(`${p.nombre} cargado`); },
+  "migrar-local": async b => {
+    b.disabled = true; b.textContent = "Subiendo…";
+    const datos = {}; for (const c of ["clientes", "servicios", "tickets", "cambios", "cobros", "gastos", "mantenimientos", "ajustes"]) { try { datos[c] = JSON.parse(localStorage.getItem("iscrlabs:" + c) || "[]"); } catch { datos[c] = []; } }
+    await importar(JSON.stringify({ datos }));
+    for (const c of Object.keys(datos)) localStorage.removeItem("iscrlabs:" + c);
+    $("bandaLocal").hidden = true; render(); toast("Datos subidos a Firebase");
+  },
+  "descartar-local": () => { if (!confirm("¿Borrar los datos del modo local de este navegador? Los de Firebase no se tocan.")) return; for (const k of Object.keys(localStorage)) if (k.startsWith("iscrlabs:")) localStorage.removeItem(k); $("bandaLocal").hidden = true; },
   "salir": async () => { if (firebase()) { await firebase().A.signOut(firebase().auth); location.reload(); } }
 };
 document.addEventListener("click", e => {
@@ -676,6 +684,9 @@ async function entrar() {
   $("lateralPie").innerHTML = modo === "firebase"
     ? `<span>${esc(firebase().auth.currentUser?.email || "")}</span><button data-acc="salir">${ico("log-out")} Salir</button>`
     : `<span>Modo local · datos en este navegador</span>`;
+  // Datos que quedaron del modo local en este navegador → ofrecer subirlos a Firebase
+  const localPend = modo === "firebase" && (() => { try { return JSON.parse(localStorage.getItem("iscrlabs:clientes") || "[]").length; } catch { return 0; } })();
+  if (localPend) { $("bandaLocal").hidden = false; $("bandaLocal").innerHTML = `${ico("upload")} Este navegador tiene datos del modo local (${localPend} cliente(s)). <button class="btn peq" data-acc="migrar-local">Subirlos a Firebase</button> <button class="btn sec peq" data-acc="descartar-local">Descartar</button>`; }
   if (modo === "local") { $("bandaLocal").hidden = false; $("bandaLocal").innerHTML = `${ico("alert-triangle")} <b>Modo local:</b> los datos se guardan solo en este navegador. Para usarlo en serio, conectá Firebase (ver README) y pasá los datos con un respaldo.`; }
   render();
 }
