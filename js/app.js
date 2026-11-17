@@ -3,6 +3,7 @@
 // =========================================================
 import { FIREBASE } from "./config.js";
 import { db, modo, cargarTodo, guardar, borrar, exportar, importar, ajustes, guardarAjustes, iniciarFirebase, firebase } from "./datos.js";
+import { PENDIENTES, porCargar } from "./clientes-nuevos.js";
 import * as L from "./logica.js";
 import { ico } from "./iconos.js";
 
@@ -356,6 +357,8 @@ const filaCambio = x => `<tr>
 const tablaCambios = xs => `<table><tr><th>Fecha</th><th>Cambio</th><th>Dónde</th><th class="ocultar-movil">Commit</th><th></th></tr>${xs.map(filaCambio).join("")}</table>`;
 
 // ---------- INICIO ----------
+const botonesPendientes = () => porCargar().map(p => `<button class="btn" style="white-space:normal" data-acc="cargar-pendiente" data-clave="${p.clave}">${ico("plus")} Cargar ${esc(p.nombre)}</button>`).join("");
+
 function vInicio() {
   const abiertos = db.tickets.filter(L.ticketAbierto).sort((a, b) => ["urgente", "alta", "media", "baja"].indexOf(a.prioridad) - ["urgente", "alta", "media", "baja"].indexOf(b.prioridad) || a.numero - b.numero);
   const pend = L.pendientes(), venc = L.vencidos(), renov = L.proximasRenovaciones(60);
@@ -366,8 +369,11 @@ function vInicio() {
     <p class="muted" style="margin-bottom:18px">Aquí vas a llevar clientes, tickets, tiempo, cambios publicados, cobros y renovaciones.</p>
     <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
     <button class="btn" style="white-space:normal" data-acc="sembrar">${ico("rocket")} Cargar Carnicería La Central como primer cliente</button>
+    ${botonesPendientes()}
     <button class="btn sec" data-acc="nuevo-cliente">${ico("plus")} Empezar en blanco</button></div></div></div>`;
-  return `
+  const nuevos = porCargar();
+  return `${nuevos.length ? `<div class="panel"><div class="panel-cuerpo" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <b>${ico("rocket")} Cliente(s) nuevo(s) listo(s) para cargar:</b>${botonesPendientes()}</div></div>` : ""}
   <div class="kpis">
     <div class="kpi"><small>${ico("repeat")} Ingreso mensual recurrente</small><b>${L.colones(L.mrr())}</b><span>${L.activos().length} cliente(s) activo(s)</span></div>
     <div class="kpi"><small>${ico("wallet")} Cobrado en ${L.MESES[new Date().getMonth()]}</small><b>${L.colones(L.cobradoMes())}</b><span>por cobrar ${L.colones(L.porCobrar())}</span></div>
@@ -635,6 +641,7 @@ const ACCIONES = {
   "mmes": b => { filtros.mPeriodo = L.sumarMeses(filtros.mPeriodo, +b.dataset.d); render(); },
   "exportar": () => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([exportar()], { type: "application/json" })); a.download = `iscr-labs-respaldo-${L.hoyISO()}.json`; a.click(); },
   "sembrar": async () => { const { sembrar } = await import("./semilla.js"); await sembrar(); await L.generarMantenimientos(); render(); toast("Carnicería La Central cargada"); },
+  "cargar-pendiente": async b => { const p = PENDIENTES.find(x => x.clave === b.dataset.clave); if (!p || !porCargar().includes(p)) return; await p.cargar(); await L.generarMantenimientos(); render(); toast(`${p.nombre} cargado`); },
   "salir": async () => { if (firebase()) { await firebase().A.signOut(firebase().auth); location.reload(); } }
 };
 document.addEventListener("click", e => {

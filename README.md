@@ -55,6 +55,7 @@ js/datos.js       ← guardar / leer (local o Firestore), respaldo
 js/logica.js      ← reglas: mensualidades, renovaciones, tiempo, planes
 js/app.js         ← vistas y acciones
 js/semilla.js     ← datos iniciales de Carnicería La Central
+js/clientes-nuevos.js ← clientes nuevos que se cargan con un botón en Inicio (Servegas)
 js/iconos.js      ← íconos (Lucide, ISC)
 firestore.rules   ← seguridad
 ```
