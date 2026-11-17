@@ -1,8 +1,8 @@
 // Clientes nuevos listos para cargar con un toque.
 // En Inicio aparece un botón por cada uno que todavía no esté en la lista de clientes.
 // Cuando ya se cargaron en todos los navegadores / en Firebase, se pueden quitar de aquí.
-import { db, guardar } from "./datos.js";
-import * as L from "./logica.js";
+import { db, guardar } from "./datos.js?v=2";
+import * as L from "./logica.js?v=2";
 
 export const PENDIENTES = [
   {

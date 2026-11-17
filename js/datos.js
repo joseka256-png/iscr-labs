@@ -4,7 +4,7 @@
 //   · MODO LOCAL  → localStorage (solo este navegador)
 //   · FIREBASE    → Firestore (con login)
 // =========================================================
-import { FIREBASE } from "./config.js";
+import { FIREBASE } from "./config.js?v=2";
 
 export const COLECCIONES = ["clientes", "servicios", "tickets", "cambios", "cobros", "gastos", "mantenimientos", "ajustes"];
 export const db = Object.fromEntries(COLECCIONES.map(c => [c, []]));

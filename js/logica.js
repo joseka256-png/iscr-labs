@@ -1,7 +1,7 @@
 // =========================================================
 //  Reglas del negocio: cobros, renovaciones, tiempo, planes
 // =========================================================
-import { db, guardar, ajustes } from "./datos.js";
+import { db, guardar, ajustes } from "./datos.js?v=2";
 
 // ---------- fechas ----------
 export const hoyISO = () => new Date().toISOString().slice(0, 10);

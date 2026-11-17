@@ -20,6 +20,11 @@ input,select,textarea{font:inherit;color:var(--tx);-webkit-text-fill-color:var(-
 .login-caja p{color:var(--gr)}
 .login-caja label{display:grid;gap:4px;font-weight:600;font-size:.85rem}
 .login-caja input{padding:11px 12px;border:1.5px solid var(--bd);border-radius:10px}
+.clave{position:relative;display:block}
+.clave input{width:100%;padding-right:46px}
+.clave button{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:38px;height:38px;border:none;background:none;border-radius:8px;color:var(--gr);display:grid;place-items:center}
+.clave button:hover{background:var(--fondo);color:var(--tx)}
+.clave button:focus-visible{outline:2px solid var(--azul)}
 .msg{color:var(--rojo);font-size:.85rem;min-height:1em}
 
 /* LAYOUT */

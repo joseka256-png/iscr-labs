@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/app.css?v=2">
 </head>
 <body>
 
@@ -20,7 +20,7 @@
     <h1>ISCR <span>Labs</span></h1>
     <p>Panel interno de clientes, tickets y cobros.</p>
     <label>Correo<input type="email" id="lCorreo" autocomplete="username" required></label>
-    <label>Contraseña<input type="password" id="lClave" autocomplete="current-password" required></label>
+    <label>Contraseña<span class="clave"><input type="password" id="lClave" autocomplete="current-password" required><button type="button" id="verClave" aria-label="Mostrar contraseña" aria-pressed="false"></button></span></label>
     <button class="btn" type="submit">Entrar</button>
     <p class="msg" id="lMsg"></p>
   </form>
@@ -49,6 +49,6 @@
 <div class="modal" id="modal" hidden><div class="modal-caja" role="dialog" aria-modal="true" id="modalCaja"></div></div>
 <div class="toast" id="toast"></div>
 
-<script type="module" src="js/app.js"></script>
+<script type="module" src="js/app.js?v=2"></script>
 </body>
 </html>

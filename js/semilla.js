@@ -1,6 +1,6 @@
 // Datos iniciales: Carnicería La Central (primer cliente de ISCR Labs).
 // Se cargan con el botón de bienvenida; después se editan normal.
-import { guardar } from "./datos.js";
+import { guardar } from "./datos.js?v=2";
 
 const COMMITS = [
   ["1f86761", "2026-11-16", "Versionar logos y favicon para que los cambios se vean sin caché"],

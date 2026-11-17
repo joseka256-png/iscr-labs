@@ -1,11 +1,11 @@
 // =========================================================
 //  ISCR Labs — app principal (vistas, formularios y acciones)
 // =========================================================
-import { FIREBASE } from "./config.js";
-import { db, modo, cargarTodo, guardar, borrar, exportar, importar, ajustes, guardarAjustes, iniciarFirebase, firebase } from "./datos.js";
+import { FIREBASE } from "./config.js?v=2";
+import { db, modo, cargarTodo, guardar, borrar, exportar, importar, ajustes, guardarAjustes, iniciarFirebase, firebase } from "./datos.js?v=2";
 import { PENDIENTES, porCargar } from "./clientes-nuevos.js";
-import * as L from "./logica.js";
-import { ico } from "./iconos.js";
+import * as L from "./logica.js?v=2";
+import { ico } from "./iconos.js?v=2";
 
 const $ = id => document.getElementById(id);
 const esc = t => String(t ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -640,7 +640,7 @@ const ACCIONES = {
   "mes": b => { filtros.cPeriodo = L.sumarMeses(filtros.cPeriodo, +b.dataset.d); render(); },
   "mmes": b => { filtros.mPeriodo = L.sumarMeses(filtros.mPeriodo, +b.dataset.d); render(); },
   "exportar": () => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([exportar()], { type: "application/json" })); a.download = `iscr-labs-respaldo-${L.hoyISO()}.json`; a.click(); },
-  "sembrar": async () => { const { sembrar } = await import("./semilla.js"); await sembrar(); await L.generarMantenimientos(); render(); toast("Carnicería La Central cargada"); },
+  "sembrar": async () => { const { sembrar } = await import("./semilla.js?v=2"); await sembrar(); await L.generarMantenimientos(); render(); toast("Carnicería La Central cargada"); },
   "cargar-pendiente": async b => { const p = PENDIENTES.find(x => x.clave === b.dataset.clave); if (!p || !porCargar().includes(p)) return; await p.cargar(); await L.generarMantenimientos(); render(); toast(`${p.nombre} cargado`); },
   "migrar-local": async b => {
     b.disabled = true; b.textContent = "Subiendo…";
@@ -671,6 +671,16 @@ document.addEventListener("change", async e => {
   }
 });
 $("abrirMenu").onclick = () => $("lateral").classList.toggle("abierto");
+// ojo para mostrar / ocultar la contraseña del login
+$("verClave").innerHTML = ico("eye");
+$("verClave").onclick = () => {
+  const ver = $("lClave").type === "password";
+  $("lClave").type = ver ? "text" : "password";
+  $("verClave").innerHTML = ico(ver ? "eye-off" : "eye");
+  $("verClave").setAttribute("aria-label", ver ? "Ocultar contraseña" : "Mostrar contraseña");
+  $("verClave").setAttribute("aria-pressed", String(ver));
+  $("lClave").focus();
+};
 
 // =========================================================
 //  ARRANQUE
