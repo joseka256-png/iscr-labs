@@ -1,11 +1,11 @@
 // =========================================================
 //  ISCR Labs — app principal (vistas, formularios y acciones)
 // =========================================================
-import { FIREBASE } from "./config.js?v=2";
-import { db, modo, cargarTodo, guardar, borrar, exportar, importar, ajustes, guardarAjustes, iniciarFirebase, firebase } from "./datos.js?v=2";
-import { PENDIENTES, porCargar } from "./clientes-nuevos.js";
-import * as L from "./logica.js?v=2";
-import { ico } from "./iconos.js?v=2";
+import { FIREBASE } from "./config.js?v=3";
+import { db, modo, cargarTodo, guardar, borrar, exportar, importar, ajustes, guardarAjustes, iniciarFirebase, firebase } from "./datos.js?v=3";
+import { PENDIENTES, porCargar } from "./clientes-nuevos.js?v=3";
+import * as L from "./logica.js?v=3";
+import { ico } from "./iconos.js?v=3";
 
 const $ = id => document.getElementById(id);
 const esc = t => String(t ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -79,15 +79,19 @@ function formulario({ titulo, campos, datos = {}, onGuardar, onBorrar, extra = "
     e.preventDefault();
     const falta = campos.find(f => f.req && f.k && !$("f_" + f.k.replace(/\./g, "_")).value.trim());
     if (falta) return toast(`Falta: ${falta.label}`);
-    await onGuardar(leerCampos(campos, datos)); cerrarModal(); render(); toast("Guardado");
+    try { await onGuardar(leerCampos(campos, datos)); } catch (err) { if (err.message === "cancelado") return; throw err; }
+    cerrarModal(); render(); toast("Guardado");
   };
   if (onBorrar) $("frmBorrar").onclick = async () => { if (confirm("¿Borrar este registro? No se puede deshacer.")) { await onBorrar(); cerrarModal(); render(); toast("Borrado"); } };
 }
 
 // ---------- definiciones de formularios ----------
+const SOPORTE_CLIENTE = { plan: "Según el plan (cambios incluidos y extras)", gratis: "Sin cobro (cortesía, garantía o prueba)" };
+const CHIP_COBRO_TICKET = { plan: '<span class="chip gris">Del plan</span>', extra: '<span class="chip ambar">Extra</span>', gratis: '<span class="chip verde">Sin cobro</span>' };
 const F_CLIENTE = [
   { k: "nombre", label: "Nombre del negocio", req: true },
   { k: "estado", label: "Estado", tipo: "select", opciones: ESTADO_CLIENTE, def: "activo" },
+  { k: "desde", label: "Cliente desde", tipo: "date", ayuda: "Día en que empezó a ser cliente" },
   { k: "contacto", label: "Persona de contacto" },
   { k: "telefono", label: "Teléfono / WhatsApp", ph: "8888-8888" },
   { k: "correo", label: "Correo", tipo: "email" },
@@ -99,6 +103,7 @@ const F_CLIENTE = [
   { k: "plan.nombre", label: "Plan", ph: "Ej. Premium ₡40.000" },
   { k: "plan.mensualidad", label: "Mensualidad (₡)", tipo: "number" },
   { k: "plan.cambiosMes", label: "Cambios incluidos por mes", ph: "4 o ilimitados", def: "4" },
+  { k: "plan.soporte", label: "Soporte", tipo: "select", opciones: SOPORTE_CLIENTE, def: "plan", ayuda: "Sin cobro: los tickets nuevos de este cliente salen como \"Sin cobro\" y no se marca excedido" },
   { k: "plan.diaPago", label: "Día de pago", tipo: "number", def: 5 },
   { k: "plan.inicio", label: "Inicio del contrato", tipo: "date" },
   { k: "plan.fin", label: "Fin del contrato", tipo: "date" },
@@ -112,7 +117,7 @@ const F_TICKET = [
   { k: "estado", label: "Estado", tipo: "select", opciones: L.ESTADOS_TICKET, def: "abierto" },
   { k: "origen", label: "¿Cómo llegó?", tipo: "select", opciones: ORIGEN, def: "whatsapp" },
   { k: "limite", label: "Fecha límite", tipo: "date" },
-  { k: "incluido", label: "Cuenta dentro de los cambios del plan", tipo: "check", def: true },
+  { k: "cobro", label: "¿Se cobra?", tipo: "select", opciones: L.COBRO_TICKET, def: "plan" },
   { k: "descripcion", label: "Detalle", tipo: "textarea" }
 ];
 const F_CAMBIO = [
@@ -171,19 +176,27 @@ const conClientes = (campos, extraOpc) => campos.map(f => f.k === "clienteId" ? 
 
 function formCliente(c = { estado: "activo", plan: { cambiosMes: "4", diaPago: 5 } }) {
   formulario({ titulo: c.id ? `Editar ${c.nombre}` : "Nuevo cliente", campos: F_CLIENTE, datos: c,
-    onGuardar: async d => { await guardar("clientes", d); await L.generarMensualidades(); await L.generarMantenimientos(); },
-    onBorrar: c.id ? () => borrar("clientes", c.id) : null });
+    extra: c.id ? `<p class="muted" style="margin-top:12px">Si borrás el cliente se borran también sus tickets, cobros, servicios, cambios y mantenimientos.</p>` : "",
+    onGuardar: async d => {
+      if (db.clientes.some(x => x.id !== d.id && L.normNombre(x.nombre) === L.normNombre(d.nombre)) && !confirm(`Ya hay un cliente llamado "${d.nombre}". ¿Guardarlo de todas formas?`)) throw new Error("cancelado");
+      await guardar("clientes", d); await L.generarMensualidades(); await L.generarMantenimientos();
+    },
+    onBorrar: c.id ? async () => { await L.borrarClienteCompleto(c.id); location.hash = "#/clientes"; } : null });
 }
 function formTicket(t = {}) {
-  const datos = { incluido: true, tipo: "cambio", prioridad: "media", estado: "abierto", origen: "whatsapp", ...t };
+  const datos = { tipo: "cambio", prioridad: "media", estado: "abierto", origen: "whatsapp", ...t,
+    cobro: t.id ? L.cobroTicket(t) : (t.cobro || L.cobroPorDefecto(L.cliente(t.clienteId))) };
   formulario({ titulo: t.id ? `Ticket #${t.numero}` : "Nuevo ticket", campos: conClientes(F_TICKET), datos,
     onGuardar: async d => {
+      delete d.incluido; // reemplazado por "cobro"
       if (!d.numero) d.numero = L.siguienteNumero();
       if (["listo", "cerrado"].includes(d.estado) && !d.cerradoFecha) d.cerradoFecha = new Date().toISOString();
       if (d.timerInicio && ["listo", "cerrado"].includes(d.estado)) d = await L.detenerTimer(d);
       await guardar("tickets", d);
     },
     onBorrar: t.id ? () => borrar("tickets", t.id) : null });
+  // ticket nuevo: al elegir el cliente, se pone el cobro que le corresponde
+  if (!t.id) $("f_clienteId").onchange = e => { $("f_cobro").value = L.cobroPorDefecto(L.cliente(e.target.value)); };
 }
 function formCambio(c = {}) {
   const tks = Object.fromEntries([["", "— Ninguno —"], ...db.tickets.filter(t => !c.clienteId || t.clienteId === c.clienteId).sort((a, b) => b.numero - a.numero).map(t => [t.id, `#${t.numero} · ${t.titulo}`])]);
@@ -278,7 +291,7 @@ function verTicket(t) {
         <div><small>Cliente</small><b>${esc(c.nombre || "—")}</b></div>
         <div><small>Estado</small><span class="chip ${CHIP_ESTADO[t.estado]}">${L.ESTADOS_TICKET[t.estado]}</span></div>
         <div><small>Prioridad</small><span class="chip ${CHIP_PRIO[t.prioridad]}">${PRIORIDAD[t.prioridad]}</span></div>
-        <div><small>Tipo</small><b>${TIPO_TICKET[t.tipo] || "—"}</b> ${t.incluido === false ? '<span class="chip ambar">Extra</span>' : '<span class="chip gris">Del plan</span>'}</div>
+        <div><small>Tipo</small><b>${TIPO_TICKET[t.tipo] || "—"}</b> ${CHIP_COBRO_TICKET[L.cobroTicket(t)]}</div>
         <div><small>Creado</small><b>${L.fechaCorta(t.creado)}</b> <span class="muted">por ${ORIGEN[t.origen] || "—"}</span></div>
         <div><small>Fecha límite</small><b>${L.fechaCorta(t.limite)}</b></div>
       </div>
@@ -371,8 +384,9 @@ function vInicio() {
     <button class="btn" style="white-space:normal" data-acc="sembrar">${ico("rocket")} Cargar Carnicería La Central como primer cliente</button>
     ${botonesPendientes()}
     <button class="btn sec" data-acc="nuevo-cliente">${ico("plus")} Empezar en blanco</button></div></div></div>`;
-  const nuevos = porCargar();
-  return `${nuevos.length ? `<div class="panel"><div class="panel-cuerpo" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+  const nuevos = porCargar(), dups = L.duplicados();
+  return `${dups.length ? `<div class="panel"><div class="panel-cuerpo" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <b>${ico("alert-triangle")} Hay clientes repetidos:</b> ${dups.map(g => esc(g[0].nombre)).join(", ")} <a class="btn sec peq" href="#/ajustes">Revisar</a></div></div>` : ""}${nuevos.length ? `<div class="panel"><div class="panel-cuerpo" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
     <b>${ico("rocket")} Cliente(s) nuevo(s) listo(s) para cargar:</b>${botonesPendientes()}</div></div>` : ""}
   <div class="kpis">
     <div class="kpi"><small>${ico("repeat")} Ingreso mensual recurrente</small><b>${L.colones(L.mrr())}</b><span>${L.activos().length} cliente(s) activo(s)</span></div>
@@ -403,15 +417,20 @@ function vInicio() {
 }
 
 // ---------- CLIENTES ----------
+// Fecha en que empezó a ser cliente: la que se puso a mano, o el inicio del contrato,
+// o (en gris) el día en que se registró en ISCR Labs.
+const textoDesde = c => c.desde ? L.fechaCorta(c.desde) : c.plan?.inicio ? L.fechaCorta(c.plan.inicio)
+  : c.creado ? `<span class="muted" title="Fecha en que se registró en el panel">${L.fechaCorta(c.creado)}</span>` : '<span class="muted">—</span>';
 function vClientes() {
   const cs = [...db.clientes].sort((a, b) => (a.estado === "activo" ? 0 : 1) - (b.estado === "activo" ? 0 : 1) || a.nombre.localeCompare(b.nombre));
   return `<div class="filtros"><button class="btn" data-acc="nuevo-cliente">${ico("plus")} Nuevo cliente</button></div>
-  <div class="panel">${cs.length ? `<table><tr><th>Cliente</th><th>Estado</th><th class="der-txt">Mensualidad</th><th class="ocultar-movil">Cambios del mes</th><th class="ocultar-movil">Tickets abiertos</th><th class="ocultar-movil">Por cobrar</th></tr>
+  <div class="panel">${cs.length ? `<table><tr><th>Cliente</th><th>Estado</th><th class="der-txt">Mensualidad</th><th class="ocultar-movil">Cliente desde</th><th class="ocultar-movil">Cambios del mes</th><th class="ocultar-movil">Tickets abiertos</th><th class="ocultar-movil">Por cobrar</th></tr>
     ${cs.map(c => { const u = L.usoPlan(c); const deuda = L.pendientes().filter(x => x.clienteId === c.id); return `<tr class="click" data-ir="#/clientes/${c.id}">
       <td><b>${esc(c.nombre)}</b><div class="muted">${esc(c.contacto || c.telefono || "")}</div></td>
       <td><span class="chip ${CHIP_CLIENTE[c.estado]}">${ESTADO_CLIENTE[c.estado]}</span></td>
       <td class="der-txt">${+c.plan?.mensualidad ? L.colones(c.plan.mensualidad) : '<span class="muted">Por definir</span>'}</td>
-      <td class="ocultar-movil">${u.limite === Infinity ? `${u.usados} / ilimitados` : `<span class="${u.excedido ? "chip rojo" : ""}">${u.usados} / ${u.limite}</span>`}</td>
+      <td class="ocultar-movil">${textoDesde(c)}</td>
+      <td class="ocultar-movil">${L.soporteGratis(c) ? `<span class="chip verde">Sin cobro</span>` : u.limite === Infinity ? `${u.usados} / ilimitados` : `<span class="${u.excedido ? "chip rojo" : ""}">${u.usados} / ${u.limite}</span>`}</td>
       <td class="ocultar-movil">${db.tickets.filter(t => t.clienteId === c.id && L.ticketAbierto(t)).length}</td>
       <td class="ocultar-movil">${deuda.length ? `<span class="chip ${deuda.some(x => L.estadoCobro(x) === "vencido") ? "rojo" : "azul"}">${L.colones(deuda.reduce((s, x) => s + (+x.monto || 0), 0))}</span>` : "—"}</td></tr>`; }).join("")}</table>` : vacio("Todavía no hay clientes.", "nuevo-cliente", "Nuevo cliente")}</div>`;
 }
@@ -439,9 +458,11 @@ function vCliente(id) {
       <div><small>Sitio</small><b>${link(c.sitio)}</b></div><div><small>Prueba</small><b>${link(c.prueba, "ver")}</b></div>
       <div><small>Repositorio</small><b>${c.repo ? link("https://github.com/" + c.repo, c.repo) : "—"}</b></div>
       <div><small>Plan</small><b>${esc(c.plan?.nombre || "—")}</b></div>
+      <div><small>Cliente desde</small><b>${textoDesde(c)}</b></div>
       <div><small>Mensualidad</small><b>${+c.plan?.mensualidad ? L.colones(c.plan.mensualidad) : "Por definir"}</b> <span class="muted">día ${c.plan?.diaPago || "—"}</span></div>
       <div><small>Contrato</small><b>${L.fechaCorta(c.plan?.inicio)} → ${L.fechaCorta(c.plan?.fin)}</b></div>
-      <div><small>Cambios este mes</small><b>${u.usados} / ${u.limite === Infinity ? "ilimitados" : u.limite}</b> ${u.excedido ? '<span class="chip rojo">Excedido: cobrar extra</span>' : ""}</div>
+      <div><small>Soporte</small><b>${L.soporteGratis(c) ? '<span class="chip verde">Sin cobro</span>' : "Según el plan"}</b></div>
+      <div><small>Cambios este mes</small><b>${u.usados} / ${u.limite === Infinity ? "ilimitados" : u.limite}</b> ${u.excedido ? '<span class="chip rojo">Excedido: cobrar extra</span>' : ""}${u.sinCobro ? ` <span class="muted">+ ${u.sinCobro} sin cobro</span>` : ""}</div>
       <div><small>Tiempo total</small><b>${L.horas(minTot)}</b></div>
     </div>${c.notas ? `<p class="muted" style="margin-top:14px;white-space:pre-wrap">${esc(c.notas)}</p>` : ""}</div></div>
   <div class="grid2">
@@ -548,10 +569,23 @@ function vMantenimiento() {
     <div class="panel-cuerpo">${m.tareas.map(t => `<label class="check ${t.hecho ? "hecho" : ""}"><input type="checkbox" data-tarea="${m.id}:${t.id}" ${t.hecho ? "checked" : ""}><span>${esc(t.texto)}</span></label>`).join("")}</div></div>`).join("") : `<div class="panel">${vacio(`Sin listas para ${L.nombrePeriodo(p)}.`, "generar-mant", "Generar listas")}</div>`}</div>`;
 }
 
+// ---------- clientes duplicados ----------
+function panelDuplicados() {
+  const grupos = L.duplicados();
+  if (!grupos.length) return "";
+  const resumen = c => { const r = L.registrosDe(c.id); return `${r.tickets.length} tickets · ${r.cobros.length} cobros · ${r.servicios.length} servicios · ${r.cambios.length} cambios`; };
+  return `<div class="panel" id="duplicados"><div class="panel-cab"><h2>${ico("alert-triangle")} Clientes duplicados</h2></div><div class="panel-cuerpo" style="display:grid;gap:14px">
+    <p class="muted">Estos clientes aparecen más de una vez. Quedate con la copia que tenga más información y borrá la otra: se borra junto con sus tickets, cobros, servicios, cambios y mantenimientos.</p>
+    ${grupos.map(g => `<div><b>${esc(g[0].nombre)}</b> (${g.length} copias)
+      ${g.map((c, i) => `<div class="lista-item"><div class="txt"><b>Copia ${i + 1}</b> <a href="#/clientes/${c.id}">ver ${ico("external-link")}</a><span class="muted">Creada ${L.fechaCorta(c.creado)} · ${resumen(c)}</span></div>
+        <button class="btn rojo peq" data-acc="borrar-duplicado" data-id="${c.id}">${ico("trash-2")} Borrar esta copia</button></div>`).join("")}</div>`).join("")}
+  </div></div>`;
+}
+
 // ---------- AJUSTES ----------
 function vAjustes() {
   const a = ajustes();
-  return `<div class="grid2">
+  return `${panelDuplicados()}<div class="grid2">
   <div class="panel"><div class="panel-cab"><h2>${ico("settings")} Datos para mensajes</h2></div><div class="panel-cuerpo">
     <form class="form" id="frmAjustes">
       <label>Firma en recordatorios<input id="aFirma" value="${esc(a.firma || "José de ISCR Tech")}"></label>
@@ -612,7 +646,10 @@ function enlazarAjustes() {
   $("aImportar").onchange = async e => {
     const f = e.target.files[0]; if (!f) return;
     const reemplazar = confirm("¿Reemplazar todos los datos actuales por el respaldo? (Cancelar = combinar)");
-    try { await importar(await f.text(), { reemplazar }); render(); toast("Respaldo importado"); } catch (err) { alert("No se pudo importar: " + err.message); }
+    try {
+      const r = await importar(await f.text(), { reemplazar }); render(); toast("Respaldo importado");
+      if (r.saltados.length) alert(`Estos clientes ya existían y no se duplicaron:\n\n· ${r.saltados.join("\n· ")}`);
+    } catch (err) { alert("No se pudo importar: " + err.message); }
   };
 }
 
@@ -640,16 +677,24 @@ const ACCIONES = {
   "mes": b => { filtros.cPeriodo = L.sumarMeses(filtros.cPeriodo, +b.dataset.d); render(); },
   "mmes": b => { filtros.mPeriodo = L.sumarMeses(filtros.mPeriodo, +b.dataset.d); render(); },
   "exportar": () => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([exportar()], { type: "application/json" })); a.download = `iscr-labs-respaldo-${L.hoyISO()}.json`; a.click(); },
-  "sembrar": async () => { const { sembrar } = await import("./semilla.js?v=2"); await sembrar(); await L.generarMantenimientos(); render(); toast("Carnicería La Central cargada"); },
+  "sembrar": async () => { const { sembrar } = await import("./semilla.js?v=3"); const c = await sembrar(); await L.generarMantenimientos(); render(); toast(c ? "Carnicería La Central cargada" : "Carnicería La Central ya estaba cargada"); },
   "cargar-pendiente": async b => { const p = PENDIENTES.find(x => x.clave === b.dataset.clave); if (!p || !porCargar().includes(p)) return; await p.cargar(); await L.generarMantenimientos(); render(); toast(`${p.nombre} cargado`); },
   "migrar-local": async b => {
     b.disabled = true; b.textContent = "Subiendo…";
     const datos = {}; for (const c of ["clientes", "servicios", "tickets", "cambios", "cobros", "gastos", "mantenimientos", "ajustes"]) { try { datos[c] = JSON.parse(localStorage.getItem("iscrlabs:" + c) || "[]"); } catch { datos[c] = []; } }
-    await importar(JSON.stringify({ datos }));
+    const r = await importar(JSON.stringify({ datos }));
     for (const c of Object.keys(datos)) localStorage.removeItem("iscrlabs:" + c);
     $("bandaLocal").hidden = true; render(); toast("Datos subidos a Firebase");
+    if (r.saltados.length) alert(`Estos clientes ya estaban en Firebase y no se volvieron a subir (para no duplicarlos):\n\n· ${r.saltados.join("\n· ")}`);
   },
   "descartar-local": () => { if (!confirm("¿Borrar los datos del modo local de este navegador? Los de Firebase no se tocan.")) return; for (const k of Object.keys(localStorage)) if (k.startsWith("iscrlabs:")) localStorage.removeItem(k); $("bandaLocal").hidden = true; },
+  "borrar-duplicado": async b => {
+    const c = L.cliente(b.dataset.id); if (!c) return;
+    const r = L.registrosDe(c.id);
+    if (L.duplicados().every(g => !g.includes(c))) return toast("Ese cliente ya no está repetido");
+    if (!confirm(`¿Borrar esta copia de ${c.nombre}?\n\nSe borran también sus ${r.tickets.length} tickets, ${r.cobros.length} cobros, ${r.servicios.length} servicios, ${r.cambios.length} cambios y ${r.mantenimientos.length} mantenimientos. No se puede deshacer.\n\nSugerencia: descargá un respaldo antes.`)) return;
+    b.disabled = true; await L.borrarClienteCompleto(c.id); render(); toast("Copia borrada");
+  },
   "salir": async () => { if (firebase()) { await firebase().A.signOut(firebase().auth); location.reload(); } }
 };
 document.addEventListener("click", e => {

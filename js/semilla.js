@@ -1,6 +1,7 @@
 // Datos iniciales: Carnicería La Central (primer cliente de ISCR Labs).
 // Se cargan con el botón de bienvenida; después se editan normal.
-import { guardar } from "./datos.js?v=2";
+import { guardar } from "./datos.js?v=3";
+import * as L from "./logica.js?v=3";
 
 const COMMITS = [
   ["1f86761", "2026-11-16", "Versionar logos y favicon para que los cambios se vean sin caché"],
@@ -21,6 +22,7 @@ const COMMITS = [
 ];
 
 export async function sembrar() {
+  if (L.existeCliente("Carnicería La Central")) return null; // ya está: no duplicar
   const c = await guardar("clientes", {
     nombre: "Carnicería La Central", estado: "activo", contacto: "", telefono: "8321-7253", correo: "cosechaporcina.sa@gmail.com",
     razonSocial: "", sitio: "", prueba: "https://joseka256-png.github.io/carniceria-la-central/", repo: "joseka256-png/carniceria-la-central",
@@ -37,7 +39,6 @@ export async function sembrar() {
     ["Confirmar precios dudosos (tocineta Zar, jamón de pavo Don Luis) y unidades de embutidos", "cambio", "baja", "esperando", "interno", true, ""],
     ["Borrar tarjetas de prueba antes del lanzamiento", "soporte", "media", "abierto", "interno", false, "Dalia Marín (8337-2609) y Mario Solís (8990-7654)."]
   ];
-  let n = 1;
   for (const [titulo, tipo, prioridad, estado, origen, incluido, descripcion] of tickets)
-    await guardar("tickets", { numero: n++, clienteId: c.id, titulo, tipo, prioridad, estado, origen, incluido, descripcion, tiempo: [] });
+    await guardar("tickets", { numero: L.siguienteNumero(), clienteId: c.id, titulo, tipo, prioridad, estado, origen, cobro: incluido ? "plan" : "gratis", descripcion, tiempo: [] });
 }

@@ -4,7 +4,7 @@
 //   · MODO LOCAL  → localStorage (solo este navegador)
 //   · FIREBASE    → Firestore (con login)
 // =========================================================
-import { FIREBASE } from "./config.js?v=2";
+import { FIREBASE } from "./config.js?v=3";
 
 export const COLECCIONES = ["clientes", "servicios", "tickets", "cambios", "cobros", "gastos", "mantenimientos", "ajustes"];
 export const db = Object.fromEntries(COLECCIONES.map(c => [c, []]));
@@ -67,13 +67,39 @@ export async function borrar(c, id) {
 
 // Respaldo completo (JSON) e importación
 export function exportar() { return JSON.stringify({ app: "ISCR Labs", version: 1, fecha: ahora(), datos: db }, null, 2); }
+// Nombre normalizado para comparar clientes (sin tildes, mayúsculas ni espacios de más)
+export const normNombre = s => (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+
+// Importa un respaldo. Al combinar, un cliente que ya existe con el mismo nombre
+// (pero otro id) NO se vuelve a crear, y tampoco sus tickets, cobros, servicios, etc.
+// Así subir los datos locales dos veces, o desde dos navegadores, no duplica clientes.
 export async function importar(json, { reemplazar = false } = {}) {
   const d = JSON.parse(json).datos || {};
+  const saltados = new Map(); // id importado → nombre
+  if (!reemplazar) for (const c of d.clientes || []) {
+    if (db.clientes.some(x => x.id === c.id)) continue; // es el mismo registro: se actualiza
+    if (db.clientes.some(x => normNombre(x.nombre) === normNombre(c.nombre))) saltados.set(c.id, c.nombre);
+  }
+  // si en el mismo respaldo viene el cliente repetido, solo entra el primero
+  const vistos = new Set(db.clientes.map(x => normNombre(x.nombre)));
+  for (const c of d.clientes || []) {
+    if (saltados.has(c.id) || db.clientes.some(x => x.id === c.id)) continue;
+    if (vistos.has(normNombre(c.nombre))) saltados.set(c.id, c.nombre); else vistos.add(normNombre(c.nombre));
+  }
   for (const c of COLECCIONES) {
     if (!Array.isArray(d[c])) continue;
     if (reemplazar) for (const r of [...db[c]]) await borrar(c, r.id);
-    for (const r of d[c]) await guardar(c, r);
+    for (let r of d[c]) {
+      if (c === "clientes" && saltados.has(r.id)) continue;
+      if (c !== "clientes" && c !== "gastos" && saltados.has(r.clienteId)) continue;
+      if (c === "gastos" && saltados.has(r.clienteId)) r = { ...r, clienteId: "" };
+      // número de ticket ocupado por otro ticket → se le da el siguiente libre
+      if (c === "tickets" && db.tickets.some(t => t.id !== r.id && +t.numero === +r.numero))
+        r = { ...r, numero: db.tickets.reduce((m, t) => Math.max(m, +t.numero || 0), 0) + 1 };
+      await guardar(c, r);
+    }
   }
+  return { saltados: [...new Set(saltados.values())] };
 }
 
 // Ajustes (un solo documento)

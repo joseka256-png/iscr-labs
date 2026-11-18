@@ -1,7 +1,8 @@
 // =========================================================
 //  Reglas del negocio: cobros, renovaciones, tiempo, planes
 // =========================================================
-import { db, guardar, ajustes } from "./datos.js?v=2";
+import { db, guardar, borrar, ajustes, normNombre } from "./datos.js?v=3";
+export { normNombre };
 
 // ---------- fechas ----------
 export const hoyISO = () => new Date().toISOString().slice(0, 10);
@@ -85,11 +86,43 @@ export async function detenerTimer(t, nota = "") {
 }
 export const timerActivo = () => db.tickets.find(t => t.timerInicio);
 
-// Cambios del plan usados en el mes (tickets "incluidos" creados en el período)
+// ---------- cobro del soporte ----------
+// Cada ticket se cobra de una de tres formas:
+//   plan   → cuenta dentro de los cambios incluidos del plan
+//   extra  → se cobra aparte
+//   gratis → no se cobra ni cuenta en el plan (cortesía, garantía, error nuestro…)
+// Los tickets viejos solo tenían "incluido" (true/false); se leen igual.
+export const COBRO_TICKET = { plan: "Del plan (cuenta en los cambios del mes)", extra: "Extra (se cobra aparte)", gratis: "Sin cobro (cortesía / garantía)" };
+export const cobroTicket = t => t.cobro || (t.incluido === false ? "extra" : "plan");
+// El cliente puede tener el soporte sin cobro (p. ej. en garantía o de prueba)
+export const soporteGratis = c => c?.plan?.soporte === "gratis";
+export const cobroPorDefecto = c => soporteGratis(c) ? "gratis" : "plan";
+
+// Cambios del plan usados en el mes (tickets "del plan" creados en el período)
 export function usoPlan(c, p = periodoActual()) {
-  const usados = db.tickets.filter(t => t.clienteId === c.id && t.incluido !== false && t.tipo !== "error" && (t.creado || "").startsWith(p) && t.estado !== "cancelado").length;
+  const delMes = db.tickets.filter(t => t.clienteId === c.id && (t.creado || "").startsWith(p) && t.estado !== "cancelado");
+  const usados = delMes.filter(t => cobroTicket(t) === "plan" && t.tipo !== "error").length;
+  const sinCobro = delMes.filter(t => cobroTicket(t) === "gratis").length;
   const limite = c.plan?.cambiosMes === "ilimitados" ? Infinity : (+c.plan?.cambiosMes || 0);
-  return { usados, limite, excedido: usados > limite };
+  return { usados, sinCobro, limite, excedido: !soporteGratis(c) && usados > limite };
+}
+
+// ---------- clientes duplicados ----------
+export const existeCliente = nombre => db.clientes.some(c => normNombre(c.nombre) === normNombre(nombre));
+// Grupos de clientes con el mismo nombre (más de uno)
+export function duplicados() {
+  const g = {};
+  for (const c of db.clientes) (g[normNombre(c.nombre)] ||= []).push(c);
+  return Object.values(g).filter(x => x.length > 1);
+}
+const DEPENDIENTES = ["servicios", "tickets", "cambios", "cobros", "mantenimientos"];
+export const registrosDe = id => Object.fromEntries(DEPENDIENTES.map(col => [col, db[col].filter(x => x.clienteId === id)]));
+// Borra el cliente y todo lo que cuelga de él (para no dejar tickets o cobros huérfanos).
+// Los gastos del negocio ligados al cliente no se borran: solo se desligan.
+export async function borrarClienteCompleto(id) {
+  for (const [col, regs] of Object.entries(registrosDe(id))) for (const r of regs) await borrar(col, r.id);
+  for (const g of db.gastos.filter(x => x.clienteId === id)) await guardar("gastos", { ...g, clienteId: "" });
+  await borrar("clientes", id);
 }
 
 // ---------- mantenimiento mensual ----------

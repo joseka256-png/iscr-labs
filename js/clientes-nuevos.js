@@ -1,8 +1,8 @@
 // Clientes nuevos listos para cargar con un toque.
 // En Inicio aparece un botón por cada uno que todavía no esté en la lista de clientes.
 // Cuando ya se cargaron en todos los navegadores / en Firebase, se pueden quitar de aquí.
-import { db, guardar } from "./datos.js?v=2";
-import * as L from "./logica.js?v=2";
+import { db, guardar } from "./datos.js?v=3";
+import * as L from "./logica.js?v=3";
 
 export const PENDIENTES = [
   {
@@ -24,11 +24,10 @@ export const PENDIENTES = [
         ["Presentar propuesta y plan mensual", "soporte", "media", "abierto", "interno", false, "Planes de ₡30.000 o ₡40.000 al mes."]
       ];
       for (const [titulo, tipo, prioridad, estado, origen, incluido, descripcion] of tickets)
-        await guardar("tickets", { numero: L.siguienteNumero(), clienteId: c.id, titulo, tipo, prioridad, estado, origen, incluido, descripcion, tiempo: [] });
+        await guardar("tickets", { numero: L.siguienteNumero(), clienteId: c.id, titulo, tipo, prioridad, estado, origen, cobro: incluido ? "plan" : "gratis", descripcion, tiempo: [] });
       return c;
     }
   }
 ];
 
-const norm = s => (s || "").toLowerCase().trim();
-export const porCargar = () => PENDIENTES.filter(p => !db.clientes.some(c => norm(c.nombre) === norm(p.nombre)));
+export const porCargar = () => PENDIENTES.filter(p => !L.existeCliente(p.nombre));
